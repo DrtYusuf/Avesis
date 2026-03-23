@@ -19,9 +19,16 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-async def check_professors():
-    """Scrape all professors and notify on new announcements."""
-    logger.info("Duyuru kontrolü başlatılıyor...")
+async def check_professors(silent: bool = False):
+    """Scrape all professors and notify on new announcements.
+
+    silent=True: mark everything as seen without sending notifications (first run).
+    """
+    if silent:
+        logger.info("İlk çalışma: mevcut duyurular kaydediliyor (bildirim gönderilmeyecek)...")
+    else:
+        logger.info("Duyuru kontrolü başlatılıyor...")
+
     seen = load_seen()
     any_new = False
 
@@ -35,20 +42,23 @@ async def check_professors():
 
         new = get_new_announcements(url, result["announcements"], seen)
         if not new:
-            logger.info("Yeni duyuru yok: %s", result["professor_name"])
+            if not silent:
+                logger.info("Yeni duyuru yok: %s", result["professor_name"])
             continue
 
-        any_new = True
-        logger.info("%d yeni duyuru bulundu: %s", len(new), result["professor_name"])
-
-        for announcement in new:
-            await send_announcement(result["professor_name"], announcement, url)
-            await asyncio.sleep(0.5)
+        if silent:
+            logger.info("%d mevcut duyuru kaydedildi (sessiz): %s", len(new), result["professor_name"])
+        else:
+            any_new = True
+            logger.info("%d yeni duyuru bulundu: %s", len(new), result["professor_name"])
+            for announcement in new:
+                await send_announcement(result["professor_name"], announcement, url)
+                await asyncio.sleep(0.5)
 
         mark_seen(url, new, seen)
 
     save_seen(seen)
-    if not any_new:
+    if not silent and not any_new:
         logger.info("Tüm profiller kontrol edildi, yeni duyuru bulunamadı.")
 
 
@@ -95,8 +105,8 @@ async def main():
     except Exception as e:
         logger.warning("Başlangıç mesajı gönderilemedi: %s", e)
 
-    # Run once immediately on startup
-    await check_professors()
+    # First run: silently mark existing announcements as seen
+    await check_professors(silent=True)
 
     while True:
         nxt = _next_run(schedules)
