@@ -76,6 +76,20 @@ async def send_error_alert(message: str):
         logger.error("Hata bildirimi gönderilemedi: %s", e)
 
 
+async def send_no_announcement_message(check_time: str):
+    """Send a summary message when no new announcements are found."""
+    bot = get_bot()
+    safe_time = _escape_md(check_time)
+    try:
+        await bot.send_message(
+            chat_id=TELEGRAM_CHAT_ID,
+            text=f"🔍 *{safe_time} kontrolü yapıldı*\n\nYeni duyuru bulunamadı\\.",
+            parse_mode=ParseMode.MARKDOWN_V2,
+        )
+    except TelegramError as e:
+        logger.error("Durum mesajı gönderilemedi: %s", e)
+
+
 async def send_startup_message():
     """Notify that the bot has started successfully."""
     bot = get_bot()

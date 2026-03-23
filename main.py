@@ -4,7 +4,7 @@ import logging
 import sys
 
 import config
-from bot import send_announcement, send_startup_message
+from bot import send_announcement, send_startup_message, send_no_announcement_message
 from storage import load_seen, save_seen, get_new_announcements, mark_seen
 from tracker import scrape_professor
 
@@ -60,6 +60,8 @@ async def check_professors(silent: bool = False):
     save_seen(seen)
     if not silent and not any_new:
         logger.info("Tüm profiller kontrol edildi, yeni duyuru bulunamadı.")
+        check_time = datetime.datetime.now().strftime("%d.%m.%Y %H:%M")
+        await send_no_announcement_message(check_time)
 
 
 def _parse_times(times: list[str]) -> list[tuple[int, int]]:
