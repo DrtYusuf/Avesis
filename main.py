@@ -2,9 +2,12 @@ import asyncio
 import datetime
 import logging
 import sys
+from zoneinfo import ZoneInfo
 
 import config
-from bot import send_announcement, send_startup_message, send_no_announcement_message
+from bot import send_announcement, send_startup_message, send_no_announcement_message, send_error_alert
+
+TZ = ZoneInfo(config.TIMEZONE)
 from storage import load_seen, save_seen, get_new_announcements, mark_seen
 from tracker import scrape_professor
 
@@ -38,6 +41,10 @@ async def check_professors(silent: bool = False):
 
         if result["error"] and not result["announcements"]:
             logger.warning("Hata (%s): %s", url, result["error"])
+            if not silent and result["error"] != "Duyurular bölümü bulunamadı.":
+                await send_error_alert(
+                    f"{result['professor_name']} ({url})\n{result['error']}"
+                )
             continue
 
         new = get_new_announcements(url, result["announcements"], seen)
@@ -60,7 +67,7 @@ async def check_professors(silent: bool = False):
     save_seen(seen)
     if not silent and not any_new:
         logger.info("Tüm profiller kontrol edildi, yeni duyuru bulunamadı.")
-        check_time = datetime.datetime.now().strftime("%d.%m.%Y %H:%M")
+        check_time = datetime.datetime.now(TZ).strftime("%d.%m.%Y %H:%M")
         await send_no_announcement_message(check_time)
 
 
@@ -75,9 +82,13 @@ def _parse_times(times: list[str]) -> list[tuple[int, int]]:
     return result
 
 
+def _now() -> datetime.datetime:
+    return datetime.datetime.now(TZ)
+
+
 def _next_run(schedules: list[tuple[int, int]]) -> datetime.datetime:
     """Return the nearest upcoming datetime from a list of (hour, minute) pairs."""
-    now = datetime.datetime.now()
+    now = _now()
     candidates = []
     for h, m in schedules:
         t = now.replace(hour=h, minute=m, second=0, microsecond=0)
@@ -110,12 +121,26 @@ async def main():
     # First run: silently mark existing announcements as seen
     await check_professors(silent=True)
 
+    last_run: datetime.datetime | None = None
+    logged_next: datetime.datetime | None = None
     while True:
         nxt = _next_run(schedules)
-        wait = (nxt - datetime.datetime.now()).total_seconds()
-        logger.info("Bir sonraki kontrol: %s (%.0f saniye sonra)", nxt.strftime("%Y-%m-%d %H:%M"), wait)
-        await asyncio.sleep(wait)
-        await check_professors()
+        if nxt != logged_next:
+            logger.info("Bir sonraki kontrol: %s", nxt.strftime("%Y-%m-%d %H:%M"))
+            logged_next = nxt
+        # Poll every 30 seconds so system sleep doesn't cause missed checks
+        await asyncio.sleep(30)
+        now = _now()
+        for h, m in schedules:
+            scheduled = now.replace(hour=h, minute=m, second=0, microsecond=0)
+            if (
+                now.hour == h
+                and now.minute == m
+                and (last_run is None or last_run < scheduled)
+            ):
+                last_run = scheduled
+                await check_professors()
+                break
 
 
 if __name__ == "__main__":

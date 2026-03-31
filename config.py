@@ -12,6 +12,8 @@ CHECK_TIMES = [t.strip() for t in _check_times_raw.split(",") if t.strip()]
 _professors_raw = os.getenv("PROFESSORS", "")
 PROFESSORS = [url.strip() for url in _professors_raw.split(",") if url.strip()]
 
+TIMEZONE = os.getenv("TIMEZONE", "Europe/Istanbul")
+
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 SEEN_FILE = os.path.join(DATA_DIR, "seen.json")
 

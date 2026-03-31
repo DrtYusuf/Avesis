@@ -58,26 +58,22 @@ def _parse_ytu_dokumanlar(soup: BeautifulSoup, profile_url: str) -> list:
     """Parse announcements from the YTÜ /dokumanlar page."""
     announcements = []
 
-    # Find the <h4> whose text starts with "Duyuru"
-    duyuru_heading = None
-    for h4 in soup.find_all("h4"):
-        if re.search(r"duyuru", h4.get_text(), re.I):
-            duyuru_heading = h4
-            break
+    # Find all section headings (h4 with class "with-underline")
+    section_headings = soup.find_all("h4", class_="with-underline")
 
-    if not duyuru_heading:
-        logger.debug("YTÜ dokumanlar: 'Duyuru' heading not found")
+    if not section_headings:
+        logger.debug("YTÜ dokumanlar: no 'with-underline' headings found")
         return []
 
-    # Collect all .ac-item siblings that follow the heading until the next h4
     siblings = []
-    for sibling in duyuru_heading.find_next_siblings():
-        if sibling.name == "h4":
-            break
-        if "ac-item" in sibling.get("class", []):
-            siblings.append(sibling)
+    for heading in section_headings:
+        for sibling in heading.find_next_siblings():
+            if sibling.name == "h4":
+                break
+            if "ac-item" in sibling.get("class", []):
+                siblings.append(sibling)
 
-    logger.debug("YTÜ dokumanlar: found %d .ac-item elements under Duyuru heading", len(siblings))
+    logger.debug("YTÜ dokumanlar: found %d .ac-item elements across all sections", len(siblings))
 
     for item in siblings:
         # Title: first <span> inside col-md-8 (after the icon)
