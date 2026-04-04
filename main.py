@@ -6,10 +6,13 @@ from zoneinfo import ZoneInfo
 
 import config
 from bot import send_announcement, send_startup_message, send_no_announcement_message, send_error_alert
-
-TZ = ZoneInfo(config.TIMEZONE)
 from storage import load_seen, save_seen, get_new_announcements, mark_seen
 from tracker import scrape_professor
+
+try:
+    TZ = ZoneInfo(config.TIMEZONE)
+except Exception:
+    TZ = ZoneInfo("Europe/Istanbul")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -22,18 +25,22 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-async def check_professors(silent: bool = False):
+async def check_professors(silent: bool = False, notify: bool = True):
     """Scrape all professors and notify on new announcements.
 
     silent=True: mark everything as seen without sending notifications (first run).
+    notify=False: scrape and update seen.json but do not send Telegram messages (keepalive).
     """
     if silent:
         logger.info("İlk çalışma: mevcut duyurular kaydediliyor (bildirim gönderilmeyecek)...")
+    elif not notify:
+        logger.info("Canlı tutma kontrolü yapılıyor (bildirim gönderilmeyecek)...")
     else:
         logger.info("Duyuru kontrolü başlatılıyor...")
 
     seen = load_seen()
     any_new = False
+    any_error = False
 
     for url in config.PROFESSORS:
         logger.info("Kontrol ediliyor: %s", url)
@@ -41,7 +48,8 @@ async def check_professors(silent: bool = False):
 
         if result["error"] and not result["announcements"]:
             logger.warning("Hata (%s): %s", url, result["error"])
-            if not silent and result["error"] != "Duyurular bölümü bulunamadı.":
+            if notify and not silent and result["error"] != "Duyurular bölümü bulunamadı.":
+                any_error = True
                 await send_error_alert(
                     f"{result['professor_name']} ({url})\n{result['error']}"
                 )
@@ -49,12 +57,12 @@ async def check_professors(silent: bool = False):
 
         new = get_new_announcements(url, result["announcements"], seen)
         if not new:
-            if not silent:
+            if not silent and notify:
                 logger.info("Yeni duyuru yok: %s", result["professor_name"])
             continue
 
-        if silent:
-            logger.info("%d mevcut duyuru kaydedildi (sessiz): %s", len(new), result["professor_name"])
+        if silent or not notify:
+            logger.info("%d yeni içerik kaydedildi: %s", len(new), result["professor_name"])
         else:
             any_new = True
             logger.info("%d yeni duyuru bulundu: %s", len(new), result["professor_name"])
@@ -65,7 +73,7 @@ async def check_professors(silent: bool = False):
         mark_seen(url, new, seen)
 
     save_seen(seen)
-    if not silent and not any_new:
+    if notify and not silent and not any_new and not any_error:
         logger.info("Tüm profiller kontrol edildi, yeni duyuru bulunamadı.")
         check_time = datetime.datetime.now(TZ).strftime("%d.%m.%Y %H:%M")
         await send_no_announcement_message(check_time)
@@ -121,25 +129,36 @@ async def main():
     # First run: silently mark existing announcements as seen
     await check_professors(silent=True)
 
-    last_run: datetime.datetime | None = None
+    last_notify: datetime.datetime | None = None
+    last_keepalive: datetime.datetime | None = None
     logged_next: datetime.datetime | None = None
+
+    KEEPALIVE_INTERVAL = 20 * 60  # 20 dakika
+
     while True:
         nxt = _next_run(schedules)
         if nxt != logged_next:
-            logger.info("Bir sonraki kontrol: %s", nxt.strftime("%Y-%m-%d %H:%M"))
+            logger.info("Bir sonraki bildirim: %s", nxt.strftime("%Y-%m-%d %H:%M"))
             logged_next = nxt
-        # Poll every 30 seconds so system sleep doesn't cause missed checks
+
         await asyncio.sleep(30)
         now = _now()
+
+        # 20 dakikada bir keepalive (box'u canlı tutar, bildirim göndermez)
+        if last_keepalive is None or (now - last_keepalive).total_seconds() >= KEEPALIVE_INTERVAL:
+            last_keepalive = now
+            await check_professors(notify=False)
+
+        # Seçilen saatlerde bildirimli kontrol
         for h, m in schedules:
             scheduled = now.replace(hour=h, minute=m, second=0, microsecond=0)
             if (
                 now.hour == h
                 and now.minute == m
-                and (last_run is None or last_run < scheduled)
+                and (last_notify is None or last_notify < scheduled)
             ):
-                last_run = scheduled
-                await check_professors()
+                last_notify = scheduled
+                await check_professors(notify=True)
                 break
 
 
