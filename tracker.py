@@ -97,6 +97,10 @@ def _parse_ytu_dokumanlar(soup: BeautifulSoup, profile_url: str) -> list:
                     date = text
                     break
 
+        # Type badge: col-md-2 containing a .badge element
+        badge = item.select_one(".col-md-2 .badge, .col-xs-2 .badge")
+        item_type = badge.get_text(strip=True) if badge else "Duyuru"
+
         # Content: item-body text
         body = item.select_one(".item-body")
         content = body.get_text(separator=" ", strip=True) if body else ""
@@ -106,6 +110,7 @@ def _parse_ytu_dokumanlar(soup: BeautifulSoup, profile_url: str) -> list:
             "id": announcement_id,
             "title": title,
             "date": date,
+            "type": item_type,
             "content": content[:500],
             "url": profile_url,
         })
@@ -234,9 +239,12 @@ def scrape_professor(profile_url: str) -> dict:
     # Build list of URLs to try
     if _is_ytu(profile_url):
         # YTÜ: announcements are on the /dokumanlar sub-page
-        urls_to_try = [base_url + "/dokumanlar"]
-        # Also fetch the base profile for the professor name
-        name_url = base_url
+        if base_url.endswith("/dokumanlar"):
+            urls_to_try = [base_url]
+            name_url = base_url[: -len("/dokumanlar")]
+        else:
+            urls_to_try = [base_url + "/dokumanlar"]
+            name_url = base_url
     else:
         # Generic: try /duyurular first, then base URL
         urls_to_try = []

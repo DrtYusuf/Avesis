@@ -23,14 +23,25 @@ def _escape_md(text: str) -> str:
     return text
 
 
+_TYPE_EMOJI = {
+    "Duyuru": "📢",
+    "Ders Notu": "📚",
+    "Ödev": "📝",
+    "Sınav": "📋",
+    "Tez Dosyaları": "🎓",
+}
+
+
 def _format_message(professor_name: str, announcement: dict, profile_url: str) -> str:
     title = announcement.get("title", "Başlık yok")
     date = announcement.get("date", "")
     content = announcement.get("content", "")
+    item_type = announcement.get("type", "Duyuru")
     short_content = content[:200] + ("..." if len(content) > 200 else "")
 
+    emoji = _TYPE_EMOJI.get(item_type, "📄")
     lines = [
-        f"📢 *Yeni Duyuru*",
+        f"{emoji} *Yeni {_escape_md(item_type)}*",
         f"",
         f"👨‍🏫 *Hoca:* {_escape_md(professor_name)}",
         f"📌 *Başlık:* {_escape_md(title)}",
