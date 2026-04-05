@@ -148,9 +148,10 @@ async def main():
             last_keepalive = now
             await check_professors(notify=False)
 
-        # Her 2 saatte bir bildirimli kontrol
-        if last_notify is None or (now - last_notify).total_seconds() >= NOTIFY_INTERVAL:
-            last_notify = now
+        # Her çift saatin başında bildirimli kontrol (00:00, 02:00, 04:00 ...)
+        on_hour = now.replace(minute=0, second=0, microsecond=0)
+        if now.hour % 2 == 0 and now.minute == 0 and (last_notify is None or last_notify < on_hour):
+            last_notify = on_hour
             await check_professors(notify=True)
 
 
