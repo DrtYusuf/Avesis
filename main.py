@@ -62,7 +62,7 @@ async def check_professors(silent: bool = False, notify: bool = True):
             continue
 
         if silent or not notify:
-            logger.info("%d yeni içerik kaydedildi: %s", len(new), result["professor_name"])
+            logger.info("%d yeni içerik var (bildirim bekliyor): %s", len(new), result["professor_name"])
         else:
             any_new = True
             logger.info("%d yeni duyuru bulundu: %s", len(new), result["professor_name"])
@@ -70,9 +70,11 @@ async def check_professors(silent: bool = False, notify: bool = True):
                 await send_announcement(result["professor_name"], announcement, url)
                 await asyncio.sleep(0.5)
 
-        mark_seen(url, new, seen)
+        if notify or silent:
+            mark_seen(url, new, seen)
 
-    save_seen(seen)
+    if notify or silent:
+        save_seen(seen)
     if notify and not silent and not any_new and not any_error:
         logger.info("Tüm profiller kontrol edildi, yeni duyuru bulunamadı.")
         check_time = datetime.datetime.now(TZ).strftime("%d.%m.%Y %H:%M")
