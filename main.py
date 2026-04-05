@@ -133,35 +133,25 @@ async def main():
 
     last_notify: datetime.datetime | None = None
     last_keepalive: datetime.datetime | None = None
-    logged_next: datetime.datetime | None = None
 
-    KEEPALIVE_INTERVAL = 20 * 60  # 20 dakika
+    KEEPALIVE_INTERVAL = 20 * 60   # 20 dakika
+    NOTIFY_INTERVAL   = 2 * 60 * 60  # 2 saat
+
+    logger.info("Keepalive: her 20 dakika | Bildirim: her 2 saat")
 
     while True:
-        nxt = _next_run(schedules)
-        if nxt != logged_next:
-            logger.info("Bir sonraki bildirim: %s", nxt.strftime("%Y-%m-%d %H:%M"))
-            logged_next = nxt
-
         await asyncio.sleep(30)
         now = _now()
 
-        # 20 dakikada bir keepalive (box'u canlı tutar, bildirim göndermez)
+        # 20 dakikada bir sessiz kontrol (box'u canlı tutar)
         if last_keepalive is None or (now - last_keepalive).total_seconds() >= KEEPALIVE_INTERVAL:
             last_keepalive = now
             await check_professors(notify=False)
 
-        # Seçilen saatlerde bildirimli kontrol
-        for h, m in schedules:
-            scheduled = now.replace(hour=h, minute=m, second=0, microsecond=0)
-            if (
-                now.hour == h
-                and now.minute == m
-                and (last_notify is None or last_notify < scheduled)
-            ):
-                last_notify = scheduled
-                await check_professors(notify=True)
-                break
+        # Her 2 saatte bir bildirimli kontrol
+        if last_notify is None or (now - last_notify).total_seconds() >= NOTIFY_INTERVAL:
+            last_notify = now
+            await check_professors(notify=True)
 
 
 if __name__ == "__main__":
