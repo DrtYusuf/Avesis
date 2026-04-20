@@ -51,8 +51,9 @@ async def send_professor_announcements(
 ):
     """Send all new announcements for a professor as a single message with inline button."""
     bot = _get_bot()
+    docs_url = profile_url.rstrip("/") + "/dokumanlar"
     keyboard = InlineKeyboardMarkup([[
-        InlineKeyboardButton("🔗 Duyuruyu Oku", url=profile_url)
+        InlineKeyboardButton("🔗 Duyuruyu Oku", url=docs_url)
     ]])
 
     if len(announcements) == 1:
