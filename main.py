@@ -13,6 +13,7 @@ import config
 from bot import (
     set_bot,
     escape_md,
+    edit_or_send_status,
     send_professor_announcements,
     send_error_alert,
     send_startup_message,
@@ -152,8 +153,14 @@ async def check_professors(silent: bool = False, reply_chat_id=None) -> int:
         if not silent:
             if total_new > 0:
                 increment_daily_count(stats, total_new)
+            now_str = _now().strftime("%d.%m.%Y %H:%M")
             stats["last_check_time"] = _now().isoformat()
             save_stats(stats)
+
+            if total_new == 0 and not reply_chat_id:
+                await edit_or_send_status(
+                    f"✅ *Bot aktif*\n\nSon kontrol: {escape_md(now_str)}\nYeni duyuru bulunamadı\\."
+                )
 
             if reply_chat_id:
                 if total_new > 0:

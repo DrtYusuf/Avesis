@@ -47,7 +47,7 @@ def escape_md(text: str) -> str:
 
 # ── Status message (edit-in-place) ────────────────────────────────────────────
 
-async def _edit_or_send_status(text: str) -> None:
+async def edit_or_send_status(text: str) -> None:
     """Edit the last status message if possible; otherwise send a new one and save its ID."""
     bot = _get_bot()
     msg_id = load_status_message_id()
@@ -61,7 +61,10 @@ async def _edit_or_send_status(text: str) -> None:
             )
             _record_send()
             return
-        except TelegramError:
+        except TelegramError as e:
+            if "message is not modified" in str(e).lower():
+                _record_send()
+                return  # içerik aynı, sorun yok
             pass  # mesaj silinmiş ya da çok eski — yeni gönder
 
     try:
@@ -147,13 +150,13 @@ async def send_daily_summary(count: int):
         except TelegramError as e:
             logger.error("Günlük özet gönderilemedi: %s", e)
     else:
-        await _edit_or_send_status("📊 *Günlük Özet*\n\nBugün yeni duyuru bulunamadı\\.")
+        await edit_or_send_status("📊 *Günlük Özet*\n\nBugün yeni duyuru bulunamadı\\.")
 
 
 async def send_uptime_ping(last_check: str):
     """Update the last status message with an uptime confirmation (no new message sent)."""
     safe = escape_md(last_check)
-    await _edit_or_send_status(
+    await edit_or_send_status(
         f"✅ *Bot aktif*\n\nSon kontrol: {safe}\nYeni duyuru bulunamadı\\."
     )
 

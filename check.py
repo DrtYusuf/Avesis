@@ -10,7 +10,14 @@ logging.basicConfig(
 
 import os
 import config
-from main import check_professors
+import main
 
 first_run = not os.path.exists(config.SEEN_FILE)
-asyncio.run(check_professors(silent=first_run))
+
+
+async def run():
+    main._check_lock = asyncio.Lock()
+    await main.check_professors(silent=first_run)
+
+
+asyncio.run(run())
