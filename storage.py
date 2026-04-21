@@ -8,6 +8,7 @@ logger = logging.getLogger(__name__)
 
 STATS_FILE = os.path.join(DATA_DIR, "stats.json")
 NAMES_FILE = os.path.join(DATA_DIR, "professor_names.json")
+STATUS_MSG_FILE = os.path.join(DATA_DIR, "status_message.json")
 
 
 def _ensure_data_dir():
@@ -109,3 +110,26 @@ def save_professor_names(names: dict):
             json.dump(names, f, ensure_ascii=False, indent=2)
     except IOError as e:
         logger.error("Failed to save professor_names.json: %s", e)
+
+
+# ── Status message ID ─────────────────────────────────────────────────────────
+
+def load_status_message_id() -> int | None:
+    """Return the saved Telegram message_id of the last status message, or None."""
+    _ensure_data_dir()
+    if not os.path.exists(STATUS_MSG_FILE):
+        return None
+    try:
+        with open(STATUS_MSG_FILE, "r", encoding="utf-8") as f:
+            return json.load(f).get("message_id")
+    except (json.JSONDecodeError, IOError):
+        return None
+
+
+def save_status_message_id(message_id: int):
+    _ensure_data_dir()
+    try:
+        with open(STATUS_MSG_FILE, "w", encoding="utf-8") as f:
+            json.dump({"message_id": message_id}, f)
+    except IOError as e:
+        logger.error("Failed to save status_message.json: %s", e)

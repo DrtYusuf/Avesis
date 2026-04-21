@@ -7,6 +7,7 @@ from telegram.error import TelegramError
 from telegram.constants import ParseMode
 
 from config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+from storage import load_status_message_id, save_status_message_id
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,37 @@ def escape_md(text: str) -> str:
     for ch in special:
         text = text.replace(ch, f"\\{ch}")
     return text
+
+
+# ── Status message (edit-in-place) ────────────────────────────────────────────
+
+async def _edit_or_send_status(text: str) -> None:
+    """Edit the last status message if possible; otherwise send a new one and save its ID."""
+    bot = _get_bot()
+    msg_id = load_status_message_id()
+    if msg_id:
+        try:
+            await bot.edit_message_text(
+                chat_id=TELEGRAM_CHAT_ID,
+                message_id=msg_id,
+                text=text,
+                parse_mode=ParseMode.MARKDOWN_V2,
+            )
+            _record_send()
+            return
+        except TelegramError:
+            pass  # mesaj silinmiş ya da çok eski — yeni gönder
+
+    try:
+        msg = await bot.send_message(
+            chat_id=TELEGRAM_CHAT_ID,
+            text=text,
+            parse_mode=ParseMode.MARKDOWN_V2,
+        )
+        save_status_message_id(msg.message_id)
+        _record_send()
+    except TelegramError as e:
+        logger.error("Durum mesajı gönderilemedi: %s", e)
 
 
 # ── Send functions ────────────────────────────────────────────────────────────
@@ -101,36 +133,29 @@ async def send_professor_announcements(
 
 
 async def send_daily_summary(count: int):
-    """Send daily summary message."""
-    bot = _get_bot()
+    """Send daily summary message. Edits the last status message when there are no new announcements."""
     if count > 0:
+        bot = _get_bot()
         text = f"📊 *Günlük Özet*\n\nBugün toplam *{count}* yeni duyuru bulundu\\."
+        try:
+            await bot.send_message(
+                chat_id=TELEGRAM_CHAT_ID,
+                text=text,
+                parse_mode=ParseMode.MARKDOWN_V2,
+            )
+            _record_send()
+        except TelegramError as e:
+            logger.error("Günlük özet gönderilemedi: %s", e)
     else:
-        text = "📊 *Günlük Özet*\n\nBugün yeni duyuru bulunamadı\\."
-    try:
-        await bot.send_message(
-            chat_id=TELEGRAM_CHAT_ID,
-            text=text,
-            parse_mode=ParseMode.MARKDOWN_V2,
-        )
-        _record_send()
-    except TelegramError as e:
-        logger.error("Günlük özet gönderilemedi: %s", e)
+        await _edit_or_send_status("📊 *Günlük Özet*\n\nBugün yeni duyuru bulunamadı\\.")
 
 
 async def send_uptime_ping(last_check: str):
-    """Send uptime confirmation after 24h silence."""
-    bot = _get_bot()
+    """Update the last status message with an uptime confirmation (no new message sent)."""
     safe = escape_md(last_check)
-    try:
-        await bot.send_message(
-            chat_id=TELEGRAM_CHAT_ID,
-            text=f"✅ *Bot aktif*\n\nSon kontrol: {safe}\nYeni duyuru bulunamadı\\.",
-            parse_mode=ParseMode.MARKDOWN_V2,
-        )
-        _record_send()
-    except TelegramError as e:
-        logger.error("Uptime ping gönderilemedi: %s", e)
+    await _edit_or_send_status(
+        f"✅ *Bot aktif*\n\nSon kontrol: {safe}\nYeni duyuru bulunamadı\\."
+    )
 
 
 async def send_error_alert(message: str):
