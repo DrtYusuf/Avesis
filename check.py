@@ -8,6 +8,9 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)],
 )
 
+import os
+import config
 from main import check_professors
 
-asyncio.run(check_professors(notify=True))
+first_run = not os.path.exists(config.SEEN_FILE)
+asyncio.run(check_professors(silent=first_run))

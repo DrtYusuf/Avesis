@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 import os
 import logging
@@ -114,7 +116,7 @@ def save_professor_names(names: dict):
 
 # ── Status message ID ─────────────────────────────────────────────────────────
 
-def load_status_message_id() -> int | None:
+def load_status_message_id():
     """Return the saved Telegram message_id of the last status message, or None."""
     _ensure_data_dir()
     if not os.path.exists(STATUS_MSG_FILE):
