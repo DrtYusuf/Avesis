@@ -4,3 +4,8 @@ __pycache__/
 *.pyc
 *.log
 data/seen.json
+data/stats.json
+data/tracked.json
+data/professor_names.json
+data/status_message.json
+data/faculty_cache.json

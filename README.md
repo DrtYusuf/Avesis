@@ -1,6 +1,11 @@
 # AVESİS Duyuru Takip Botu
 
-Bu bot, belirtilen AVESİS profesör profillerini her gün otomatik olarak kontrol eder ve yeni duyurular bulunduğunda Telegram üzerinden bildirim gönderir.
+Bu bot, takip ettiğiniz AVESİS hoca profillerini her gün otomatik olarak kontrol
+eder ve yeni duyurular bulunduğunda Telegram üzerinden bildirim gönderir.
+
+Takip listesini Telegram'dan [`/seç`](#seç--hoca-seçimi) komutuyla yönetirsiniz:
+fakülte kadrosundan butonlarla hoca eklersiniz, dokunarak çıkarırsınız — `.env`
+dosyasını elle düzenlemeniz gerekmez.
 
 ---
 
@@ -74,11 +79,35 @@ Ardından `.env` dosyasını bir metin editörüyle açın ve değerleri dolduru
 ```env
 TELEGRAM_BOT_TOKEN=1234567890:ABCdefGhIJKlmNoPQRsTUVwxyZ
 TELEGRAM_CHAT_ID=123456789
-PROFESSORS=https://avesis.gazi.edu.tr/hocakullanicisi,https://avesis.ankara.edu.tr/digerhoca
+PROFESSORS=https://avesis.yildiz.edu.tr/hocakullanicisi
 CHECK_TIME=09:00
+FACULTY_NAME=Elektrik-Elektronik Fakültesi
 ```
 
 > **Not:** `PROFESSORS` alanına virgülle ayırarak birden fazla AVESİS profil URL'si girebilirsiniz.
+> Bu alan yalnızca **başlangıç listesidir** — bot çalışırken hoca eklemek/çıkarmak için
+> Telegram'dan [`/seç`](#seç--hoca-seçimi) komutunu kullanın. Listeyi tamamen `/seç` ile
+> kurmak isterseniz `PROFESSORS` alanını boş bırakabilirsiniz.
+
+### Tüm Ortam Değişkenleri
+
+| Değişken | Zorunlu | Varsayılan | Açıklama |
+|----------|---------|-----------|----------|
+| `TELEGRAM_BOT_TOKEN` | ✅ | — | @BotFather'dan alınan bot token'ı |
+| `TELEGRAM_CHAT_ID` | ✅ | — | Bildirimlerin gönderileceği sohbet. `/seç` yalnızca bu sohbette çalışır |
+| `PROFESSORS` | ⚠️ | — | Virgülle ayrılmış başlangıç profil listesi. `data/tracked.json` varsa gerekmez |
+| `CHECK_TIME` | | `09:00` | Günlük kontrol saati (tek saat) |
+| `CHECK_TIMES` | | `CHECK_TIME` | Virgülle ayrılmış birden fazla kontrol saati, örn. `09:00,15:00,21:00` |
+| `TIMEZONE` | | `Europe/Istanbul` | Kontrol saatlerinin yorumlanacağı saat dilimi |
+| `AVESIS_BASE_URL` | | `https://avesis.yildiz.edu.tr` | Kurumun AVESİS adresi |
+| `FACULTY_NAME` | | `Elektrik-Elektronik Fakültesi` | `/seç` ile eklenebilecek hocaları bu fakülteyle sınırlar |
+| `FACULTY_CACHE_TTL_HOURS` | | `24` | Fakülte kadro listesinin önbellek ömrü (saat) |
+| `CHECK_SECRET` | | — | Yalnızca `server.py` için: `/check` uç noktasının Bearer token'ı |
+| `PORT` | | `8080` | Yalnızca `server.py` için: HTTP sunucu portu |
+
+`CHECK_TIMES` birden fazla kontrol yapmak isteyenler içindir; verilmezse
+`CHECK_TIME` tek saat olarak kullanılır. Günlük özet her gece **22:00**'de
+gönderilir (şu an sabit).
 
 ---
 
@@ -95,8 +124,6 @@ Bot başladığında:
 1. Telegram'a başlangıç bildirimi gönderir.
 2. Tüm profilleri hemen bir kez kontrol eder.
 3. Her gün `CHECK_TIME`'da (varsayılan: 09:00) tekrar kontrol eder.
-
----
 
 ### Arka Planda Çalıştırma (nohup)
 
@@ -175,20 +202,162 @@ tail -f avesis-tracker.log
 
 ---
 
+### HTTP ile Tetikleme (server.py)
+
+Botu sürekli çalıştırmak yerine dışarıdan tetiklemek isterseniz (cron servisleri,
+uptime izleyicileri, ücretsiz barındırma planları) `server.py` küçük bir HTTP
+sunucusu açar:
+
+```bash
+python server.py
+```
+
+| Uç nokta | Yöntem | Açıklama |
+|----------|--------|----------|
+| `/check` | POST | Bir kontrol turu çalıştırır |
+| `/health` | GET | Sağlık kontrolü |
+
+`CHECK_SECRET` tanımlıysa `/check` çağrısı Bearer token ister:
+
+```bash
+curl -X POST https://sunucunuz/check -H "Authorization: Bearer GIZLI_ANAHTAR"
+```
+
+> **Not:** Bu mod yalnızca duyuru kontrolü yapar; Telegram komutları (`/seç`,
+> `/durum`, `/kontrol`) için `main.py`'nin çalışıyor olması gerekir.
+
+---
+
+### Tek Seferlik Kontrol (check.py)
+
+Bot başlatmadan tek bir kontrol turu çalıştırmak için:
+
+```bash
+python check.py
+```
+
+---
+
+## Telegram Komutları
+
+| Komut | Açıklama |
+|-------|----------|
+| `/kontrol` | Duyuruları hemen kontrol eder |
+| `/durum` | Son kontrol zamanı, istatistikler ve takip edilen hoca listesi |
+| `/seç` | Takip edilen hocaları butonlarla seçer (ekler / çıkarır) |
+| `/seç <isim>` | Fakülte kadrosunda isme göre arar, sonuçtan doğrudan ekler |
+
+> Telegram, komut adlarında yalnızca ASCII harfleri tanıdığı için `/seç`
+> komutu **`/sec`** (ve `/secim`) olarak da çalışır. İkisi de aynı ekranı açar.
+
+### `/seç` — Hoca Seçimi
+
+`/seç` gönderdiğinizde inline butonlarla yönetilen bir menü açılır:
+
+```
+🎛 Hoca Seçimi
+
+👨‍🏫 Takip edilen: 3 hoca
+🏛 Eklenebilir kadro: Elektrik-Elektronik Fakültesi (205 kişi)
+
+[ 📋 Takip Listem (3) ]
+[ ➕ Hoca Ekle        ]
+[ ♻️ Kadroyu Yenile ] [ ✖️ Kapat ]
+```
+
+- **📋 Takip Listem** — Şu an takip edilen hocaları listeler. Bir hocaya
+  dokunmak onu takipten çıkarır.
+- **➕ Hoca Ekle** — Önce bölüm seçilir, sonra o bölümdeki hocalar sayfa sayfa
+  listelenir. `➕` işaretli hocaya dokunmak onu takibe alır, `✅` işaretliye
+  dokunmak takipten çıkarır.
+- **♻️ Kadroyu Yenile** — Fakülte personel listesini AVESİS'ten yeniden çeker.
+
+**Eklenebilecek hocalar `FACULTY_NAME` ile sınırlıdır** (varsayılan:
+Elektrik-Elektronik Fakültesi). Liste, AVESİS'in araştırmacı arama servisinden
+çekilir ve `data/faculty_cache.json` dosyasında `FACULTY_CACHE_TTL_HOURS` süresi
+boyunca önbelleğe alınır. Başka bir fakülteyi takip etmek isterseniz `.env`
+dosyasındaki `FACULTY_NAME` değerini değiştirmeniz yeterlidir.
+
+Takip listesi `data/tracked.json` dosyasında tutulur. `PROFESSORS` ortam
+değişkeni yalnızca **ilk çalıştırmada** başlangıç listesi olarak kullanılır;
+sonrasında `/seç` ile yapılan değişiklikler geçerlidir.
+
+> **Not:** Yeni eklenen bir hocanın mevcut duyuruları ilk kontrolde sessizce
+> kaydedilir; bildirim olarak yalnızca eklendikten *sonra* yayınlanan duyurular
+> gönderilir. Böylece hoca eklerken eski duyuru yağmuruna tutulmazsınız.
+
+> **Güvenlik:** `/seç` yalnızca `TELEGRAM_CHAT_ID` ile belirtilen sohbette
+> çalışır; başka sohbetlerden gelen istekler reddedilir.
+
+---
+
+### Kontrol Mesajı
+
+Her kontrol sonrasında bot, hangi hocaların kontrol edildiğini listeleyen bir
+durum mesajı gönderir (yeni duyuru yoksa mesaj her seferinde yeniden
+gönderilmez, mevcut mesaj güncellenir):
+
+```
+✅ Duyurular kontrol edildi
+
+📭 Yeni duyuru yok.
+🕐 26.08.2026 19:45
+
+👨‍🏫 Kontrol edilenler (3):
+• Prof. Dr. Ahmet KIZILAY
+• Doç. Dr. Arzu KAKIŞIM
+• Prof. Dr. Selami BEYHAN
+```
+
+Yeni duyuru bulunduğunda ilk satır `📢 2 yeni duyuru bulundu.` şeklinde
+değişir. Bir hocanın sayfasına ulaşılamadıysa ayrı bir başlık eklenir:
+
+```
+⚠️ Ulaşılamayanlar (1):
+• Dr. Öğr. Üyesi Ekrem ÇETİNKAYA
+```
+
+Aynı özet `/kontrol` komutuna verilen yanıtta ve her gece gönderilen günlük
+özette de aynı biçimde gösterilir:
+
+```
+📊 Günlük Özet
+
+📢 Bugün toplam 4 yeni duyuru bulundu.
+🕐 26.08.2026 21:00
+
+👨‍🏫 Kontrol edilenler (3):
+• Prof. Dr. Ahmet KIZILAY
+• Doç. Dr. Arzu KAKIŞIM
+• Prof. Dr. Selami BEYHAN
+```
+
+Liste 25 hocayla sınırlıdır; fazlası `…ve N hoca daha` olarak özetlenir.
+
+---
+
 ## Dosya Yapısı
 
 ```
 avesis-tracker/
-├── main.py          # Ana giriş noktası, zamanlayıcı
+├── main.py          # Ana giriş noktası, zamanlayıcı, komut kayıtları
 ├── tracker.py       # AVESİS sayfa kazıma (scraping) mantığı
+├── directory.py     # Fakülte personel dizini (/seç ekleme listesi)
+├── selection.py     # /seç komutu ve inline buton ekranları
 ├── bot.py           # Telegram bot entegrasyonu
-├── storage.py       # Görülen duyuruların JSON depolanması
+├── storage.py       # Takip listesi ve görülen duyuruların JSON depolanması
 ├── config.py        # Yapılandırma yönetimi
+├── server.py        # HTTP ile tetiklenen kontrol (cron/uptime servisleri için)
+├── check.py         # Tek seferlik kontrol betiği (bot başlatmadan)
 ├── requirements.txt # Python bağımlılıkları
 ├── .env.example     # Örnek ortam değişkenleri
 ├── .env             # Gerçek ortam değişkenleri (git'e eklemeyin!)
 ├── data/
-│   └── seen.json    # Görülen duyuru kayıtları (otomatik oluşturulur)
+│   ├── seen.json           # Görülen duyuru kayıtları (otomatik)
+│   ├── tracked.json        # /seç ile yönetilen takip listesi (otomatik)
+│   ├── faculty_cache.json  # Fakülte kadro önbelleği (otomatik)
+│   ├── professor_names.json # Hoca adı önbelleği (otomatik)
+│   └── stats.json          # İstatistikler (otomatik)
 └── avesis-tracker.log  # Log dosyası (otomatik oluşturulur)
 ```
 
@@ -203,11 +372,15 @@ avesis-tracker/
 | `Chat not found` hatası | Chat ID'nin doğruluğunu kontrol edin, botu sohbete ekleyin |
 | Duyurular gelmiyor | AVESİS profil URL'lerinin doğru olduğunu kontrol edin |
 | `Duyurular bölümü bulunamadı` | Profilin "Duyurular" sekmesinin mevcut olduğunu kontrol edin |
+| `/seç` yanıt vermiyor | Komutu `TELEGRAM_CHAT_ID`'deki sohbetten gönderdiğinizden emin olun |
+| `/seç` "personel listesi alınamadı" diyor | AVESİS'e ulaşılamıyor; `AVESIS_BASE_URL` doğru mu, birazdan tekrar deneyin |
+| `/seç` listesi boş | `FACULTY_NAME` değerinin AVESİS'teki fakülte adıyla birebir aynı olduğunu kontrol edin |
 
 ---
 
 ## Notlar
 
-- `data/seen.json` dosyası silinirse bot tüm mevcut duyuruları yeniden "yeni" olarak algılar.
+- `data/seen.json` dosyası silinirse bot takip edilen profilleri sıfırdan baz alır (duyuru yağmuru olmaz, sessizce kaydedilir).
+- `data/tracked.json` dosyası silinirse takip listesi `PROFESSORS` değerinden yeniden oluşturulur.
 - `.env` dosyasını asla Git'e göndermeyin. `.gitignore`'a ekleyin.
 - AVESİS sayfa yapısı üniversiteden üniversiteye farklılık gösterebilir.

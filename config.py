@@ -14,8 +14,16 @@ PROFESSORS = [url.strip() for url in _professors_raw.split(",") if url.strip()]
 
 TIMEZONE = os.getenv("TIMEZONE", "Europe/Istanbul")
 
+# ── AVESİS akademik personel dizini ───────────────────────────────────────────
+# /seç komutunun hoca ekleme listesini bu kurumdan ve bu fakülteden çeker.
+AVESIS_BASE_URL = os.getenv("AVESIS_BASE_URL", "https://avesis.yildiz.edu.tr").rstrip("/")
+FACULTY_NAME = os.getenv("FACULTY_NAME", "Elektrik-Elektronik Fakültesi")
+FACULTY_CACHE_TTL_HOURS = int(os.getenv("FACULTY_CACHE_TTL_HOURS", "24"))
+
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 SEEN_FILE = os.path.join(DATA_DIR, "seen.json")
+# /seç ile yönetilen dinamik takip listesi. Yoksa PROFESSORS'tan tohumlanır.
+TRACKED_FILE = os.path.join(DATA_DIR, "tracked.json")
 
 HEADERS = {
     "User-Agent": (
@@ -34,6 +42,7 @@ def validate():
         errors.append("TELEGRAM_BOT_TOKEN is not set")
     if not TELEGRAM_CHAT_ID:
         errors.append("TELEGRAM_CHAT_ID is not set")
-    if not PROFESSORS:
+    # Takip listesi /seç ile yönetiliyorsa PROFESSORS boş olabilir.
+    if not PROFESSORS and not os.path.exists(TRACKED_FILE):
         errors.append("PROFESSORS is not set or empty")
     return errors

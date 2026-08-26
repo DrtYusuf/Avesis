@@ -6,10 +6,14 @@ import logging
 import sys
 from zoneinfo import ZoneInfo
 
-from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram import BotCommand, Update
+from telegram.ext import (
+    Application, CallbackQueryHandler, CommandHandler, ContextTypes,
+    MessageHandler, filters,
+)
 
 import config
+import directory
 from bot import (
     set_bot,
     escape_md,
@@ -20,11 +24,13 @@ from bot import (
     send_daily_summary,
     send_uptime_ping,
     send_text,
+    format_check_summary,
     get_last_message_time,
 )
+from selection import cmd_sec, on_callback
 from storage import (
     load_seen, save_seen, get_new_announcements, mark_seen,
-    get_known_count,
+    get_known_count, load_tracked,
     load_stats, save_stats, increment_daily_count,
     load_professor_names, save_professor_names,
 )
@@ -46,6 +52,7 @@ logger = logging.getLogger(__name__)
 _check_lock: asyncio.Lock | None = None
 _error_counts: dict[str, int] = {}    # consecutive error count per URL
 _error_alerted: dict[str, bool] = {}  # whether threshold alert was sent
+_background_tasks: set[asyncio.Task] = set()
 
 DAILY_SUMMARY_HOUR = int(getattr(config, "DAILY_SUMMARY_HOUR", 22))
 UPTIME_PING_HOURS = 24
@@ -53,8 +60,33 @@ MAX_CONSECUTIVE_ERRORS = 3
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+def _spawn(coro) -> asyncio.Task:
+    """Start a background task and keep a strong reference to it.
+
+    asyncio only holds a weak reference, so an untracked task can be garbage
+    collected mid-flight. Tracking them also lets post_stop cancel them before
+    the event loop closes, instead of leaving "Task was destroyed but it is
+    pending" warnings on shutdown.
+    """
+    task = asyncio.create_task(coro)
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+    return task
+
+
 def _now() -> datetime.datetime:
     return datetime.datetime.now(TZ)
+
+
+def _last_check_str(stats: dict, fallback: str = "bilinmiyor") -> str:
+    """Format stats["last_check_time"] for display."""
+    raw = stats.get("last_check_time")
+    if not raw:
+        return fallback
+    try:
+        return datetime.datetime.fromisoformat(raw).strftime("%d.%m.%Y %H:%M")
+    except ValueError:
+        return fallback
 
 
 async def check_professors(silent: bool = False, reply_chat_id=None) -> int:
@@ -81,9 +113,17 @@ async def check_professors(silent: bool = False, reply_chat_id=None) -> int:
         seen = load_seen()
         stats = load_stats()
         names = load_professor_names()
+        tracked = load_tracked()
         total_new = 0
+        checked_names: list[str] = []   # bu turda ulaşılan hocalar
+        failed_names: list[str] = []    # bu turda ulaşılamayan hocalar
 
-        for url in config.PROFESSORS:
+        for url in tracked:
+            # A URL with no entry in seen.json has never been checked — either the
+            # very first run or a profile just added through /seç. Its existing
+            # announcements are baselined silently instead of being announced.
+            is_new_profile = url not in seen
+
             logger.info("Kontrol ediliyor: %s", url)
             result = scrape_professor(url)
             professor_name = result["professor_name"] or url.rstrip("/").split("/")[-1]
@@ -109,7 +149,10 @@ async def check_professors(silent: bool = False, reply_chat_id=None) -> int:
                     elif consecutive < MAX_CONSECUTIVE_ERRORS:
                         await send_error_alert(f"{professor_name}\n{result['error']}")
                     # consecutive > MAX: already alerted, stay silent
+                failed_names.append(professor_name)
                 continue
+
+            checked_names.append(professor_name)
 
             # ── Recovery ─────────────────────────────────────────────────
             if _error_counts.get(url, 0) > 0:
@@ -128,6 +171,14 @@ async def check_professors(silent: bool = False, reply_chat_id=None) -> int:
                 logger.warning(
                     "Şüpheli: %s için daha önce duyuru vardı ama şimdi 0 sonuç döndü, "
                     "seen güncellenmeyecek.", url
+                )
+                continue
+
+            if is_new_profile:
+                mark_seen(url, result["announcements"], seen)
+                logger.info(
+                    "Yeni profil baz alındı: %s (%d mevcut duyuru sessizce kaydedildi)",
+                    professor_name, len(result["announcements"]),
                 )
                 continue
 
@@ -155,18 +206,18 @@ async def check_professors(silent: bool = False, reply_chat_id=None) -> int:
                 increment_daily_count(stats, total_new)
             now_str = _now().strftime("%d.%m.%Y %H:%M")
             stats["last_check_time"] = _now().isoformat()
+            # Günlük özet ve uptime ping aynı listeyi yeniden çizebilsin diye sakla.
+            stats["last_checked"] = checked_names
+            stats["last_failed"] = failed_names
             save_stats(stats)
 
+            summary = format_check_summary(checked_names, failed_names, now_str, total_new)
+
             if total_new == 0 and not reply_chat_id:
-                await edit_or_send_status(
-                    f"✅ *Bot aktif*\n\nSon kontrol: {escape_md(now_str)}\nYeni duyuru bulunamadı\\."
-                )
+                await edit_or_send_status(summary)
 
             if reply_chat_id:
-                if total_new > 0:
-                    await send_text(reply_chat_id, f"✅ Kontrol tamamlandı. {total_new} yeni duyuru bulundu.")
-                else:
-                    await send_text(reply_chat_id, "✅ Kontrol tamamlandı. Yeni duyuru bulunamadı.")
+                await send_text(reply_chat_id, summary, parse_mode="MarkdownV2")
 
         return total_new
 
@@ -186,16 +237,7 @@ async def cmd_durum(update: Update, context: ContextTypes.DEFAULT_TYPE):
     stats = load_stats()
     names = load_professor_names()
 
-    # Last check time
-    last_raw = stats.get("last_check_time")
-    if last_raw:
-        try:
-            last_dt = datetime.datetime.fromisoformat(last_raw)
-            last_str = last_dt.strftime("%d.%m.%Y %H:%M")
-        except ValueError:
-            last_str = "Bilinmiyor"
-    else:
-        last_str = "Henüz kontrol yapılmadı"
+    last_str = _last_check_str(stats, "Henüz kontrol yapılmadı")
 
     # Stats
     today = datetime.date.today()
@@ -206,8 +248,9 @@ async def cmd_durum(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     # Professor list with error status
+    tracked = load_tracked()
     prof_lines = []
-    for url in config.PROFESSORS:
+    for url in tracked:
         name = names.get(url, url.rstrip("/").split("/")[-1])
         errors = _error_counts.get(url, 0)
         if errors >= MAX_CONSECUTIVE_ERRORS:
@@ -218,12 +261,15 @@ async def cmd_durum(update: Update, context: ContextTypes.DEFAULT_TYPE):
             status = "✅"
         prof_lines.append(f"  • {escape_md(name)} {status}")
 
+    if not prof_lines:
+        prof_lines = ["  _Takip edilen hoca yok — /sec ile ekleyin\\._"]
+
     text = (
         f"📊 *AVESİS Tracker Durumu*\n\n"
         f"🕐 *Son kontrol:* {escape_md(last_str)}\n"
         f"📈 *Bugün:* {today_total} yeni duyuru\n"
         f"📅 *Bu hafta:* {weekly_total} yeni duyuru\n\n"
-        f"👨‍🏫 *Takip edilen \\({len(config.PROFESSORS)} profil\\):*\n"
+        f"👨‍🏫 *Takip edilen \\({len(tracked)} profil\\):*\n"
         + "\n".join(prof_lines)
     )
     await send_text(chat_id, text, parse_mode="MarkdownV2")
@@ -291,7 +337,12 @@ async def _scheduler_loop():
             await asyncio.sleep(2)  # let any concurrent check settle first
             day_stats = load_stats()
             today_count = day_stats.get("daily_counts", {}).get(now.date().isoformat(), 0)
-            await send_daily_summary(today_count)
+            await send_daily_summary(
+                today_count,
+                day_stats.get("last_checked", []),
+                day_stats.get("last_failed", []),
+                _last_check_str(day_stats),
+            )
 
         # ── Uptime ping ──────────────────────────────────────────────────
         last_msg = get_last_message_time()
@@ -299,29 +350,52 @@ async def _scheduler_loop():
             silence_h = (datetime.datetime.now() - last_msg).total_seconds() / 3600
             if silence_h >= UPTIME_PING_HOURS:
                 ping_stats = load_stats()
-                last_raw = ping_stats.get("last_check_time")
-                if last_raw:
-                    try:
-                        last_dt = datetime.datetime.fromisoformat(last_raw)
-                        last_check_str = last_dt.strftime("%d.%m.%Y %H:%M")
-                    except ValueError:
-                        last_check_str = "bilinmiyor"
-                else:
-                    last_check_str = "bilinmiyor"
-                await send_uptime_ping(last_check_str)
+                await send_uptime_ping(
+                    _last_check_str(ping_stats),
+                    ping_stats.get("last_checked", []),
+                    ping_stats.get("last_failed", []),
+                )
 
 
 # ── Startup ───────────────────────────────────────────────────────────────────
+
+async def _warm_faculty_cache():
+    """Prefetch the faculty roster so the first /seç responds instantly."""
+    try:
+        people = await asyncio.to_thread(directory.load_faculty)
+        logger.info("Fakülte kadrosu hazır: %d kişi (%s)", len(people), config.FACULTY_NAME)
+    except Exception as e:  # dizin olmadan da bot çalışmaya devam etmeli
+        logger.warning("Fakülte kadrosu önceden yüklenemedi: %s", e)
+
 
 async def post_init(application: Application):
     """Called by PTB after the Application is initialized, before polling starts."""
     global _check_lock
     _check_lock = asyncio.Lock()
     set_bot(application.bot)
+    try:
+        await application.bot.set_my_commands([
+            BotCommand("kontrol", "Duyuruları şimdi kontrol et"),
+            BotCommand("durum", "Bot durumu ve takip listesi"),
+            BotCommand("sec", "Takip edilen hocaları seç"),
+        ])
+    except Exception as e:
+        logger.warning("Komut menüsü ayarlanamadı: %s", e)
     await send_startup_message()
     await check_professors(silent=True)
-    asyncio.create_task(_scheduler_loop())
+    _spawn(_warm_faculty_cache())
+    _spawn(_scheduler_loop())
     logger.info("Scheduler başlatıldı.")
+
+
+async def post_stop(application: Application):
+    """Cancel background tasks while the event loop is still alive."""
+    tasks = list(_background_tasks)
+    for task in tasks:
+        task.cancel()
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
+        logger.info("Arka plan görevleri durduruldu (%d).", len(tasks))
 
 
 def main():
@@ -332,17 +406,25 @@ def main():
         sys.exit(1)
 
     logger.info("AVESİS Tracker başlatılıyor...")
-    logger.info("Takip edilen profil sayısı: %d", len(config.PROFESSORS))
+    logger.info("Takip edilen profil sayısı: %d", len(load_tracked()))
     logger.info("Kontrol saatleri: %s", ", ".join(config.CHECK_TIMES))
 
     application = (
         Application.builder()
         .token(config.TELEGRAM_BOT_TOKEN)
         .post_init(post_init)
+        .post_stop(post_stop)
         .build()
     )
     application.add_handler(CommandHandler("kontrol", cmd_kontrol))
     application.add_handler(CommandHandler("durum", cmd_durum))
+    application.add_handler(CommandHandler(["sec", "secim"], cmd_sec))
+    # Telegram yalnızca ASCII komutları bot_command olarak işaretler, bu yüzden
+    # "/seç" CommandHandler'a düşmez — metin olarak yakalıyoruz.
+    application.add_handler(
+        MessageHandler(filters.Regex(r"(?i)^/se[çc](?:im)?(?:@\w+)?(?:\s|$)"), cmd_sec)
+    )
+    application.add_handler(CallbackQueryHandler(on_callback, pattern=r"^s:"))
 
     # run_polling() manages its own event loop — do NOT use asyncio.run()
     application.run_polling(allowed_updates=Update.ALL_TYPES)

@@ -45,6 +45,68 @@ def escape_md(text: str) -> str:
     return text
 
 
+# ── Check summary formatting ──────────────────────────────────────────────────
+
+CHECK_LIST_LIMIT = 25  # keep the message well under Telegram's 4096 char cap
+
+
+def _bullet_list(names: list, limit: int = CHECK_LIST_LIMIT) -> str:
+    """Render names as an escaped MarkdownV2 bullet list, truncating long lists."""
+    shown = names[:limit]
+    lines = [f"• {escape_md(name)}" for name in shown]
+    remaining = len(names) - len(shown)
+    if remaining > 0:
+        lines.append(escape_md(f"…ve {remaining} hoca daha"))
+    return "\n".join(lines)
+
+
+def _format_summary(
+    title: str, status_line: str, when: str, checked: list, failed: list
+) -> str:
+    """Shared layout for the check summary and the daily recap."""
+    lines = [f"{title}\n\n{status_line}"]
+
+    if when:
+        lines.append(f"🕐 {escape_md(when)}")
+
+    if checked:
+        lines.append(f"\n👨‍🏫 *Kontrol edilenler \\({len(checked)}\\):*")
+        lines.append(_bullet_list(checked))
+
+    if failed:
+        lines.append(f"\n⚠️ *Ulaşılamayanlar \\({len(failed)}\\):*")
+        lines.append(_bullet_list(failed))
+
+    if not checked and not failed:
+        lines.append("\n_Takip edilen hoca yok — /sec ile ekleyin\\._")
+
+    return "\n".join(lines)
+
+
+def format_check_summary(
+    checked: list, failed: list, when: str = "", total_new: int = 0
+) -> str:
+    """Build the 'check finished' message, listing which professors were checked."""
+    status = (
+        f"📢 *{total_new}* yeni duyuru bulundu\\."
+        if total_new > 0
+        else "📭 Yeni duyuru yok\\."
+    )
+    return _format_summary("✅ *Duyurular kontrol edildi*", status, when, checked, failed)
+
+
+def format_daily_summary(
+    count: int, checked: list, failed: list, when: str = ""
+) -> str:
+    """Build the end-of-day recap in the same layout as the check summary."""
+    status = (
+        f"📢 Bugün toplam *{count}* yeni duyuru bulundu\\."
+        if count > 0
+        else "📭 Bugün yeni duyuru bulunamadı\\."
+    )
+    return _format_summary("📊 *Günlük Özet*", status, when, checked, failed)
+
+
 # ── Status message (edit-in-place) ────────────────────────────────────────────
 
 async def edit_or_send_status(text: str) -> None:
@@ -135,11 +197,17 @@ async def send_professor_announcements(
         logger.error("Duyuru mesajı gönderilemedi: %s", e)
 
 
-async def send_daily_summary(count: int):
-    """Send daily summary message. Edits the last status message when there are no new announcements."""
+async def send_daily_summary(
+    count: int, checked: list | None = None, failed: list | None = None, when: str = ""
+):
+    """Send the end-of-day recap, listing the professors covered by the last check.
+
+    A day with new announcements gets its own message; a quiet day only updates
+    the existing status message so the chat doesn't fill up.
+    """
+    text = format_daily_summary(count, checked or [], failed or [], when)
     if count > 0:
         bot = _get_bot()
-        text = f"📊 *Günlük Özet*\n\nBugün toplam *{count}* yeni duyuru bulundu\\."
         try:
             await bot.send_message(
                 chat_id=TELEGRAM_CHAT_ID,
@@ -150,14 +218,17 @@ async def send_daily_summary(count: int):
         except TelegramError as e:
             logger.error("Günlük özet gönderilemedi: %s", e)
     else:
-        await edit_or_send_status("📊 *Günlük Özet*\n\nBugün yeni duyuru bulunamadı\\.")
+        await edit_or_send_status(text)
 
 
-async def send_uptime_ping(last_check: str):
-    """Update the last status message with an uptime confirmation (no new message sent)."""
-    safe = escape_md(last_check)
+async def send_uptime_ping(last_check: str, checked: list | None = None, failed: list | None = None):
+    """Refresh the status message so the user can tell the bot is still alive.
+
+    Re-renders the last check's professor list so the ping doesn't overwrite the
+    summary with less information than it already showed.
+    """
     await edit_or_send_status(
-        f"✅ *Bot aktif*\n\nSon kontrol: {safe}\nYeni duyuru bulunamadı\\."
+        format_check_summary(checked or [], failed or [], last_check)
     )
 
 
