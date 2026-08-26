@@ -81,21 +81,30 @@ def _parse_ytu_dokumanlar(soup: BeautifulSoup, profile_url: str) -> list:
 
     siblings = []
     for heading in section_headings:
+        # Extract section type from heading text (e.g. "Ders Notu25" → "Ders Notu")
+        heading_text = heading.get_text(strip=True)
+        section_type = re.sub(r"\d+$", "", heading_text).strip() or "Duyuru"
         for sibling in heading.find_next_siblings():
             if sibling.name == "h4":
                 break
             if "ac-item" in sibling.get("class", []):
+                sibling._section_type = section_type
                 siblings.append(sibling)
 
     logger.debug("YTÜ dokumanlar: found %d .ac-item elements across all sections", len(siblings))
 
     for item in siblings:
-        # Title: first <span> inside col-md-8 (after the icon)
+        # Title: first <span> inside col-md-8 (after the icon), or direct span in item-head
         title_col = item.select_one(".col-md-8, .col-xs-3")
         title = ""
         if title_col:
             span = title_col.find("span")
             title = span.get_text(strip=True) if span else title_col.get_text(strip=True)
+        if not title:
+            head = item.select_one(".item-head")
+            if head:
+                span = head.find("span")
+                title = span.get_text(strip=True) if span else head.get_text(strip=True)
 
         if not title:
             continue
@@ -111,9 +120,9 @@ def _parse_ytu_dokumanlar(soup: BeautifulSoup, profile_url: str) -> list:
                     date = text
                     break
 
-        # Type badge: col-md-2 containing a .badge element
+        # Type badge: col-md-2 containing a .badge element, or section heading
         badge = item.select_one(".col-md-2 .badge, .col-xs-2 .badge")
-        item_type = badge.get_text(strip=True) if badge else "Duyuru"
+        item_type = badge.get_text(strip=True) if badge else getattr(item, "_section_type", "Duyuru")
 
         # Content: item-body text
         body = item.select_one(".item-body")
