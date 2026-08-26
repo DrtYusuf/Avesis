@@ -148,7 +148,11 @@ async def send_professor_announcements(
 ):
     """Send all new announcements for a professor as a single message with inline button."""
     bot = _get_bot()
-    docs_url = profile_url.rstrip("/") + "/dokumanlar"
+    base = profile_url.rstrip("/")
+    if base.endswith("/dokumanlar"):
+        docs_url = base
+    else:
+        docs_url = base + "/dokumanlar"
     keyboard = InlineKeyboardMarkup([[
         InlineKeyboardButton("🔗 Duyuruyu Oku", url=docs_url)
     ]])
@@ -163,7 +167,7 @@ async def send_professor_announcements(
         lines = [
             "📢 *Yeni Duyuru*",
             "",
-            f"👨‍🏫 *Hoca:* {escape_md(professor_name)}",
+            f"🧑‍🏫 *Hoca:* {escape_md(professor_name)}",
             f"📌 *Başlık:* {escape_md(title)}",
         ]
         if date:
@@ -174,7 +178,8 @@ async def send_professor_announcements(
     else:
         lines = [
             f"📢 *{len(announcements)} Yeni Duyuru*",
-            f"👨‍🏫 *{escape_md(professor_name)}*",
+            "",
+            f"🧑‍🏫 *{escape_md(professor_name)}*",
             "",
         ]
         for i, a in enumerate(announcements, 1):
