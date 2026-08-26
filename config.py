@@ -33,7 +33,7 @@ HEADERS = {
     )
 }
 
-REQUEST_TIMEOUT = 15
+REQUEST_TIMEOUT = 30
 
 
 def validate():

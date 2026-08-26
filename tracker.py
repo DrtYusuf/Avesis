@@ -4,9 +4,23 @@ import re
 from urllib.parse import urlparse
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from bs4 import BeautifulSoup
 
 from config import HEADERS, REQUEST_TIMEOUT
+
+# ── Retry-enabled session ────────────────────────────────────────────────────
+_session = requests.Session()
+_retry = Retry(
+    total=3,
+    backoff_factor=2,
+    status_forcelist=[429, 500, 502, 503, 504],
+    allowed_methods=["GET"],
+)
+_session.mount("https://", HTTPAdapter(max_retries=_retry))
+_session.mount("http://", HTTPAdapter(max_retries=_retry))
+_session.headers.update(HEADERS)
 
 logger = logging.getLogger(__name__)
 
@@ -255,7 +269,7 @@ def scrape_professor(profile_url: str) -> dict:
 
     # Fetch professor name from the base profile page
     try:
-        name_resp = requests.get(name_url, headers=HEADERS, timeout=REQUEST_TIMEOUT)
+        name_resp = _session.get(name_url, headers=HEADERS, timeout=REQUEST_TIMEOUT)
         name_resp.raise_for_status()
         name_soup = BeautifulSoup(name_resp.text, "html.parser")
         result["professor_name"] = _extract_professor_name(name_soup)
@@ -266,7 +280,7 @@ def scrape_professor(profile_url: str) -> dict:
     # Fetch and parse announcements
     for url in urls_to_try:
         try:
-            response = requests.get(url, headers=HEADERS, timeout=REQUEST_TIMEOUT)
+            response = _session.get(url, headers=HEADERS, timeout=REQUEST_TIMEOUT)
             response.raise_for_status()
         except requests.RequestException as e:
             logger.warning("Network error fetching %s: %s", url, e)
