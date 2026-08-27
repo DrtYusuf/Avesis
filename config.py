@@ -35,6 +35,10 @@ HEADERS = {
 
 REQUEST_TIMEOUT = 30
 
+# ── Redis (Vercel serverless depolama) ───────────────────────────────────────
+UPSTASH_REDIS_REST_URL = os.getenv("UPSTASH_REDIS_REST_URL", "")
+UPSTASH_REDIS_REST_TOKEN = os.getenv("UPSTASH_REDIS_REST_TOKEN", "")
+
 
 def validate():
     errors = []
@@ -42,7 +46,7 @@ def validate():
         errors.append("TELEGRAM_BOT_TOKEN is not set")
     if not TELEGRAM_CHAT_ID:
         errors.append("TELEGRAM_CHAT_ID is not set")
-    # Takip listesi /seç ile yönetiliyorsa PROFESSORS boş olabilir.
-    if not PROFESSORS and not os.path.exists(TRACKED_FILE):
+    # Redis varsa veya tracked.json varsa PROFESSORS gerekmez.
+    if not PROFESSORS and not os.path.exists(TRACKED_FILE) and not UPSTASH_REDIS_REST_URL:
         errors.append("PROFESSORS is not set or empty")
     return errors

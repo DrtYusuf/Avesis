@@ -18,6 +18,7 @@ import requests
 
 import config
 from config import HEADERS, REQUEST_TIMEOUT, DATA_DIR
+from storage import _load_json, _save_json
 
 logger = logging.getLogger(__name__)
 
@@ -126,35 +127,18 @@ def _fetch_from_avesis() -> list[dict]:
 # ── Cache ─────────────────────────────────────────────────────────────────────
 
 def _read_cache() -> dict | None:
-    if not os.path.exists(FACULTY_CACHE_FILE):
-        return None
-    try:
-        with open(FACULTY_CACHE_FILE, "r", encoding="utf-8") as f:
-            cache = json.load(f)
-    except (json.JSONDecodeError, IOError) as e:
-        logger.error("Failed to load faculty_cache.json: %s", e)
-        return None
-
-    # Fakülte adı değiştiyse eski önbellek geçersizdir.
-    if cache.get("faculty") != config.FACULTY_NAME or not cache.get("professors"):
+    cache = _load_json("faculty_cache", FACULTY_CACHE_FILE)
+    if not cache or cache.get("faculty") != config.FACULTY_NAME or not cache.get("professors"):
         return None
     return cache
 
 
 def _write_cache(professors: list[dict]):
-    os.makedirs(DATA_DIR, exist_ok=True)
-    try:
-        with open(FACULTY_CACHE_FILE, "w", encoding="utf-8") as f:
-            json.dump(
-                {
-                    "faculty": config.FACULTY_NAME,
-                    "fetched_at": datetime.datetime.now().isoformat(),
-                    "professors": professors,
-                },
-                f, ensure_ascii=False, indent=2,
-            )
-    except IOError as e:
-        logger.error("Failed to save faculty_cache.json: %s", e)
+    _save_json("faculty_cache", FACULTY_CACHE_FILE, {
+        "faculty": config.FACULTY_NAME,
+        "fetched_at": datetime.datetime.now().isoformat(),
+        "professors": professors,
+    })
 
 
 def _is_fresh(cache: dict) -> bool:

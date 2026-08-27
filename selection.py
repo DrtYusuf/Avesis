@@ -31,6 +31,9 @@ from storage import (
     load_tracked,
     remove_tracked,
     save_professor_names,
+    store_search_query,
+    load_search_query,
+    _get_redis,
 )
 
 logger = logging.getLogger(__name__)
@@ -262,11 +265,18 @@ async def cmd_sec(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     tracked = load_tracked()
     query = _extract_query(message.text)
+    chat_id = update.effective_chat.id if update.effective_chat else 0
     if query:
-        context.user_data[QUERY_KEY] = query
+        if _get_redis() is not None:
+            store_search_query(chat_id, query)
+        else:
+            context.user_data[QUERY_KEY] = query
         text, keyboard = _render_search(query, 0, tracked, faculty)
     else:
-        context.user_data.pop(QUERY_KEY, None)
+        if _get_redis() is not None:
+            store_search_query(chat_id, "")
+        else:
+            context.user_data.pop(QUERY_KEY, None)
         text, keyboard = _render_home(tracked, faculty)
 
     await message.reply_text(text, parse_mode=ParseMode.MARKDOWN_V2, reply_markup=keyboard)
@@ -356,7 +366,11 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif action == "t":
         text, keyboard = _render_department(_int_at(parts, 2), _int_at(parts, 3), tracked, faculty)
     elif action in ("s", "q"):
-        search_query = context.user_data.get(QUERY_KEY, "")
+        chat_id = update.effective_chat.id if update.effective_chat else 0
+        if _get_redis() is not None:
+            search_query = load_search_query(chat_id)
+        else:
+            search_query = context.user_data.get(QUERY_KEY, "")
         if not search_query:
             toast = toast or "Arama geçersiz, ana menüye dönüldü."
             text, keyboard = _render_home(tracked, faculty)

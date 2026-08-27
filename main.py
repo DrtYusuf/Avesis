@@ -38,13 +38,16 @@ from tracker import scrape_professor
 
 TZ = ZoneInfo(config.TIMEZONE)
 
+_log_handlers = [logging.StreamHandler(sys.stdout)]
+try:
+    _log_handlers.append(logging.FileHandler("avesis-tracker.log", encoding="utf-8"))
+except (IOError, OSError):
+    pass  # Vercel gibi read-only ortamlarda dosya oluşturulamaz
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler("avesis-tracker.log", encoding="utf-8"),
-    ],
+    handlers=_log_handlers,
 )
 logger = logging.getLogger(__name__)
 
