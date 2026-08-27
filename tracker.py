@@ -13,8 +13,8 @@ from config import HEADERS, REQUEST_TIMEOUT
 # ── Retry-enabled session ────────────────────────────────────────────────────
 _session = requests.Session()
 _retry = Retry(
-    total=3,
-    backoff_factor=2,
+    total=2,
+    backoff_factor=1,
     status_forcelist=[429, 500, 502, 503, 504],
     allowed_methods=["GET"],
 )

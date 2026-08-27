@@ -33,7 +33,7 @@ HEADERS = {
     )
 }
 
-REQUEST_TIMEOUT = 30
+REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "15"))
 
 # ── Redis (Vercel serverless depolama) ───────────────────────────────────────
 UPSTASH_REDIS_REST_URL = os.getenv("UPSTASH_REDIS_REST_URL", "")
