@@ -120,6 +120,9 @@ async def check_professors(silent: bool = False, reply_chat_id=None) -> int:
 
         if not tracked:
             logger.info("Takip edilen hoca yok, kontrol atlanıyor.")
+            if not silent:
+                stats["last_check_time"] = _now().isoformat()
+                save_stats(stats)
             if reply_chat_id:
                 await send_text(reply_chat_id, "📭 Takip edilen hoca yok — /sec ile ekleyin.")
             return 0
