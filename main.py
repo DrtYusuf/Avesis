@@ -124,7 +124,9 @@ async def check_professors(silent: bool = False, reply_chat_id=None) -> int:
                 stats["last_check_time"] = _now().isoformat()
                 save_stats(stats)
             if reply_chat_id:
-                await send_text(reply_chat_id, "📭 Takip edilen hoca yok — /sec ile ekleyin.")
+                now_str = _now().strftime("%d.%m.%Y %H:%M")
+                summary = format_check_summary([], [], now_str, 0)
+                await send_text(reply_chat_id, summary, parse_mode="MarkdownV2")
             return 0
 
         total_new = 0
