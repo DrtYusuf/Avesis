@@ -114,6 +114,13 @@ async def check_professors(silent: bool = False, reply_chat_id=None) -> int:
         stats = load_stats()
         names = load_professor_names()
         tracked = load_tracked()
+
+        if not tracked:
+            logger.info("Takip edilen hoca yok, kontrol atlanıyor.")
+            if reply_chat_id:
+                await send_text(reply_chat_id, "📭 Takip edilen hoca yok — /sec ile ekleyin.")
+            return 0
+
         total_new = 0
         checked_names: list[str] = []   # bu turda ulaşılan hocalar
         failed_names: list[str] = []    # bu turda ulaşılamayan hocalar
