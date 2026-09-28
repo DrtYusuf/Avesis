@@ -68,40 +68,63 @@ def _first(value, default: str = "") -> str:
 
 # ── Remote fetch ──────────────────────────────────────────────────────────────
 
-def _fetch_from_avesis() -> list[dict]:
-    """Query the AVESİS search proxy for every researcher in the target faculty."""
-    body = {
-        "size": MAX_RESULTS,
-        "query": {
-            "bool": {
-                "must": [
-                    {"term": {"type_primary.keyword": RESEARCHER_TYPE}},
-                    {"term": {"facultyname_primary.keyword": config.FACULTY_NAME}},
-                ]
-            }
-        },
-        "_source": [
-            "profilepagealias",
-            "fullnamewithtitle_primary",
-            "title_primary",
-            "title_order",
-            "departmentname_primary",
-            "name",
-            "surname",
-        ],
-    }
+PAGE_SIZE_ES = 50  # AVESİS proxy'si büyük size değerlerini kırpabilir
 
-    response = requests.post(
-        SEARCH_ENDPOINT,
-        headers={**HEADERS, "Content-Type": "application/json"},
-        data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
-        timeout=REQUEST_TIMEOUT * 2,
-    )
-    response.raise_for_status()
-    hits = response.json().get("hits", {}).get("hits", [])
+
+def _fetch_from_avesis() -> list[dict]:
+    """Query the AVESİS search proxy for every researcher in the target faculty.
+
+    Proxy, size parametresini sınırlayabileceğinden sonuçları sayfalayarak çeker.
+    """
+    query = {
+        "bool": {
+            "must": [
+                {"term": {"type_primary.keyword": RESEARCHER_TYPE}},
+                {"term": {"facultyname_primary.keyword": config.FACULTY_NAME}},
+            ]
+        }
+    }
+    source_fields = [
+        "profilepagealias",
+        "fullnamewithtitle_primary",
+        "title_primary",
+        "title_order",
+        "departmentname_primary",
+        "name",
+        "surname",
+    ]
+
+    all_hits = []
+    offset = 0
+    while offset < MAX_RESULTS:
+        body = {
+            "from": offset,
+            "size": PAGE_SIZE_ES,
+            "query": query,
+            "_source": source_fields,
+        }
+        response = requests.post(
+            SEARCH_ENDPOINT,
+            headers={**HEADERS, "Content-Type": "application/json"},
+            data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
+            timeout=REQUEST_TIMEOUT * 2,
+        )
+        response.raise_for_status()
+        data = response.json().get("hits", {})
+        hits = data.get("hits", [])
+        all_hits.extend(hits)
+
+        # Toplam sonuç sayısını al (ES 7+: {value: N}, eski: N)
+        total = data.get("total", 0)
+        if isinstance(total, dict):
+            total = total.get("value", 0)
+
+        offset += PAGE_SIZE_ES
+        if offset >= total or not hits:
+            break
 
     professors = []
-    for hit in hits:
+    for hit in all_hits:
         source = hit.get("_source", {})
         alias = _first(source.get("profilepagealias"))
         if not alias:
