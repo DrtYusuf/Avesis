@@ -18,6 +18,8 @@ TIMEZONE = os.getenv("TIMEZONE", "Europe/Istanbul")
 # /seç komutunun hoca ekleme listesini bu kurumdan ve bu fakülteden çeker.
 AVESIS_BASE_URL = os.getenv("AVESIS_BASE_URL", "https://avesis.yildiz.edu.tr").rstrip("/")
 FACULTY_NAME = os.getenv("FACULTY_NAME", "Elektrik-Elektronik Fakültesi")
+_faculty_names_raw = os.getenv("FACULTY_NAMES", "")
+FACULTY_NAMES = [f.strip() for f in _faculty_names_raw.split(",") if f.strip()] or [FACULTY_NAME]
 FACULTY_CACHE_TTL_HOURS = int(os.getenv("FACULTY_CACHE_TTL_HOURS", "24"))
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")

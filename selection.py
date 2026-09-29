@@ -105,10 +105,11 @@ async def _faculty(force_refresh: bool = False) -> list[dict]:
 # ── Ekranlar ──────────────────────────────────────────────────────────────────
 
 def _render_home(tracked: list[str], faculty: list[dict]) -> tuple[str, InlineKeyboardMarkup]:
+    faculty_label = ", ".join(config.FACULTY_NAMES)
     text = (
         "🎛 *Hoca Seçimi*\n\n"
         f"👨‍🏫 Takip edilen: *{len(tracked)}* hoca\n"
-        f"🏛 Eklenebilir kadro: {escape_md(config.FACULTY_NAME)} "
+        f"🏛 Eklenebilir kadro: {escape_md(faculty_label)} "
         f"\\(*{len(faculty)}* kişi\\)\n\n"
         "🔎 İsimle aramak için: `/sec kizilay`"
     )
@@ -221,7 +222,7 @@ def _render_search(query: str, page: int, tracked: list[str], faculty: list[dict
     if not matches:
         text = (
             f"🔎 *Arama:* {escape_md(query)}\n\n"
-            f"{escape_md(config.FACULTY_NAME)} kadrosunda eşleşen hoca bulunamadı\\."
+            "Kadrolarda eşleşen hoca bulunamadı\\."
         )
         return text, InlineKeyboardMarkup(
             [[InlineKeyboardButton("🔙 Ana Menü", callback_data=f"{CB}:h")]]

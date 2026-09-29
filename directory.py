@@ -71,16 +71,13 @@ def _first(value, default: str = "") -> str:
 PAGE_SIZE_ES = 50  # AVESİS proxy'si büyük size değerlerini kırpabilir
 
 
-def _fetch_from_avesis() -> list[dict]:
-    """Query the AVESİS search proxy for every researcher in the target faculty.
-
-    Proxy, size parametresini sınırlayabileceğinden sonuçları sayfalayarak çeker.
-    """
+def _fetch_faculty(faculty_name: str) -> list[dict]:
+    """Tek bir fakültenin araştırmacılarını sayfalayarak çeker."""
     query = {
         "bool": {
             "must": [
                 {"term": {"type_primary.keyword": RESEARCHER_TYPE}},
-                {"term": {"facultyname_primary.keyword": config.FACULTY_NAME}},
+                {"term": {"facultyname_primary.keyword": faculty_name}},
             ]
         }
     }
@@ -90,6 +87,7 @@ def _fetch_from_avesis() -> list[dict]:
         "title_primary",
         "title_order",
         "departmentname_primary",
+        "facultyname_primary",
         "name",
         "surname",
     ]
@@ -114,7 +112,6 @@ def _fetch_from_avesis() -> list[dict]:
         hits = data.get("hits", [])
         all_hits.extend(hits)
 
-        # Toplam sonuç sayısını al (ES 7+: {value: N}, eski: N)
         total = data.get("total", 0)
         if isinstance(total, dict):
             total = total.get("value", 0)
@@ -123,12 +120,28 @@ def _fetch_from_avesis() -> list[dict]:
         if offset >= total or not hits:
             break
 
+    return all_hits
+
+
+def _fetch_from_avesis() -> list[dict]:
+    """Query the AVESİS search proxy for every researcher in the target faculties.
+
+    Proxy, size parametresini sınırlayabileceğinden sonuçları sayfalayarak çeker.
+    """
+    all_hits = []
+    for faculty_name in config.FACULTY_NAMES:
+        hits = _fetch_faculty(faculty_name)
+        all_hits.extend(hits)
+        logger.info("AVESİS: %s → %d kayıt", faculty_name, len(hits))
+
+    seen_aliases = set()
     professors = []
     for hit in all_hits:
         source = hit.get("_source", {})
         alias = _first(source.get("profilepagealias"))
-        if not alias:
-            continue  # herkese açık profili yok
+        if not alias or alias in seen_aliases:
+            continue
+        seen_aliases.add(alias)
         full_name = " ".join(
             p for p in (_first(source.get("name")), _first(source.get("surname"))) if p
         )
@@ -139,26 +152,33 @@ def _fetch_from_avesis() -> list[dict]:
             "title": _first(source.get("title_primary")),
             "display": _first(source.get("fullnamewithtitle_primary"), full_name or alias),
             "department": _first(source.get("departmentname_primary"), UNKNOWN_DEPARTMENT),
+            "faculty": _first(source.get("facultyname_primary"), UNKNOWN_DEPARTMENT),
             "title_order": source.get("title_order") or 99,
         })
 
-    professors.sort(key=lambda p: (p["department"], p["title_order"], fold(p["name"])))
-    logger.info("AVESİS dizini alındı: %d kişi (%s)", len(professors), config.FACULTY_NAME)
+    professors.sort(key=lambda p: (p["faculty"], p["department"], p["title_order"], fold(p["name"])))
+    faculty_label = ", ".join(config.FACULTY_NAMES)
+    logger.info("AVESİS dizini alındı: %d kişi (%s)", len(professors), faculty_label)
     return professors
 
 
 # ── Cache ─────────────────────────────────────────────────────────────────────
 
+def _cache_key() -> str:
+    """Hangi fakülteler için önbellek oluşturulduğunu tanımlayan anahtar."""
+    return ",".join(sorted(config.FACULTY_NAMES))
+
+
 def _read_cache() -> dict | None:
     cache = _load_json("faculty_cache", FACULTY_CACHE_FILE)
-    if not cache or cache.get("faculty") != config.FACULTY_NAME or not cache.get("professors"):
+    if not cache or cache.get("faculty") != _cache_key() or not cache.get("professors"):
         return None
     return cache
 
 
 def _write_cache(professors: list[dict]):
     _save_json("faculty_cache", FACULTY_CACHE_FILE, {
-        "faculty": config.FACULTY_NAME,
+        "faculty": _cache_key(),
         "fetched_at": datetime.datetime.now().isoformat(),
         "professors": professors,
     })
@@ -188,7 +208,8 @@ def load_faculty(force_refresh: bool = False) -> list[dict]:
         if professors:
             _write_cache(professors)
             return professors
-        logger.warning("AVESİS dizini boş döndü (%s)", config.FACULTY_NAME)
+        faculty_label = ", ".join(config.FACULTY_NAMES)
+        logger.warning("AVESİS dizini boş döndü (%s)", faculty_label)
     except (requests.RequestException, ValueError) as e:
         logger.warning("AVESİS dizini alınamadı: %s", e)
 
@@ -197,7 +218,7 @@ def load_faculty(force_refresh: bool = False) -> list[dict]:
         return cache["professors"]
 
     raise DirectoryError(
-        f"{config.FACULTY_NAME} personel listesi alınamadı. "
+        "Personel listesi alınamadı. "
         "AVESİS'e ulaşılamıyor olabilir, birazdan tekrar deneyin."
     )
 
