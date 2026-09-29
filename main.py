@@ -141,10 +141,12 @@ async def check_professors(silent: bool = False, reply_chat_id=None) -> int:
 
             logger.info("Kontrol ediliyor: %s", url)
             result = scrape_professor(url)
-            professor_name = result["professor_name"] or url.rstrip("/").split("/")[-1]
+            professor_name = result["professor_name"]
+            if not professor_name or professor_name == "Bilinmeyen Hoca":
+                professor_name = names.get(url) or url.rstrip("/").split("/")[-1]
 
             # Cache professor name
-            if result["professor_name"]:
+            if result["professor_name"] and result["professor_name"] != "Bilinmeyen Hoca":
                 names[url] = result["professor_name"]
 
             # ── Error handling ───────────────────────────────────────────

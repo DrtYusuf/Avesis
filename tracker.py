@@ -39,10 +39,16 @@ def _extract_professor_name(soup: BeautifulSoup) -> str:
         soup.select_one("h1"),
         soup.select_one(".profile-header h2"),
         soup.select_one(".kisisel-bilgi h2"),
+        soup.select_one("h2"),  # bazı profillerde h1 yok, isim h2'de
     ]
     for tag in candidates:
         if tag and tag.get_text(strip=True):
             return tag.get_text(strip=True)
+    # Son çare: <title> tag'ından çek ("Ad Soyad | AVESİS" formatı)
+    if soup.title:
+        title_text = soup.title.get_text(strip=True)
+        if "|" in title_text:
+            return title_text.split("|")[0].strip()
     return "Bilinmeyen Hoca"
 
 
