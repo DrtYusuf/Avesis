@@ -149,11 +149,21 @@ async def check_professors(silent: bool = False, reply_chat_id=None) -> int:
 
             # ── Error handling ───────────────────────────────────────────
             if result["error"] and not result["announcements"]:
+                # "Duyurular bölümü bulunamadı" → sayfada duyuru yok, bu bir
+                # bağlantı hatası değil. Başarılı kontrol olarak say.
+                if result["error"] == "Duyurular bölümü bulunamadı.":
+                    checked_names.append(professor_name)
+                    # Daha önce hata sayacı varsa sıfırla
+                    if _error_counts.get(url, 0) > 0:
+                        _error_counts[url] = 0
+                        _error_alerted[url] = False
+                    continue
+
                 _error_counts[url] = _error_counts.get(url, 0) + 1
                 consecutive = _error_counts[url]
                 logger.warning("Hata #%d (%s): %s", consecutive, url, result["error"])
 
-                if not silent and result["error"] != "Duyurular bölümü bulunamadı.":
+                if not silent:
                     if consecutive == MAX_CONSECUTIVE_ERRORS:
                         _error_alerted[url] = True
                         await send_error_alert(
