@@ -142,12 +142,19 @@ async def check_professors(silent: bool = False, reply_chat_id=None) -> int:
             logger.info("Kontrol ediliyor: %s", url)
             result = scrape_professor(url)
             professor_name = result["professor_name"]
-            if not professor_name or professor_name in ("Bilinmeyen Hoca", "Hata"):
-                professor_name = names.get(url) or url.rstrip("/").split("/")[-1]
+            _bad_names = ("Bilinmeyen Hoca", "Hata")
+            if not professor_name or professor_name in _bad_names:
+                cached = names.get(url, "")
+                if cached and cached not in _bad_names:
+                    professor_name = cached
+                else:
+                    professor_name = url.rstrip("/").split("/")[-1]
 
-            # Cache professor name
-            if result["professor_name"] and result["professor_name"] not in ("Bilinmeyen Hoca", "Hata"):
+            # Cache professor name (kirli değerleri de temizle)
+            if result["professor_name"] and result["professor_name"] not in _bad_names:
                 names[url] = result["professor_name"]
+            elif names.get(url) in _bad_names:
+                del names[url]
 
             # ── Error handling ───────────────────────────────────────────
             if result["error"] and not result["announcements"]:
