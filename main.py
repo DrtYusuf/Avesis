@@ -148,7 +148,15 @@ async def check_professors(silent: bool = False, reply_chat_id=None) -> int:
                 if cached and cached not in _bad_names:
                     professor_name = cached
                 else:
-                    professor_name = url.rstrip("/").split("/")[-1]
+                    # Dizin cache'inden isim bul
+                    try:
+                        entry = directory.find_by_url(directory.load_faculty(), url)
+                        if entry:
+                            professor_name = entry.get("display") or entry.get("name") or url.rstrip("/").split("/")[-1]
+                        else:
+                            professor_name = url.rstrip("/").split("/")[-1]
+                    except Exception:
+                        professor_name = url.rstrip("/").split("/")[-1]
 
             # Cache professor name (kirli değerleri de temizle)
             if result["professor_name"] and result["professor_name"] not in _bad_names:
