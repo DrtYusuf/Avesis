@@ -48,7 +48,10 @@ def _extract_professor_name(soup: BeautifulSoup) -> str:
     if soup.title:
         title_text = soup.title.get_text(strip=True)
         if "|" in title_text:
-            return title_text.split("|")[0].strip()
+            name_part = title_text.split("|")[0].strip()
+            # AVESİS hata sayfaları "Hata | AVESİS" başlığıyla 200 dönebilir
+            if name_part.lower() not in ("hata", "error", ""):
+                return name_part
     return "Bilinmeyen Hoca"
 
 
