@@ -13,8 +13,8 @@ from config import HEADERS, REQUEST_TIMEOUT
 # ── Retry-enabled session ────────────────────────────────────────────────────
 _session = requests.Session()
 _retry = Retry(
-    total=2,
-    backoff_factor=1,
+    total=3,
+    backoff_factor=2,
     status_forcelist=[429, 500, 502, 503, 504],
     allowed_methods=["GET"],
 )
@@ -244,6 +244,24 @@ def _parse_announcements_generic(section, professor_url: str) -> list:
 
 
 # ---------------------------------------------------------------------------
+# Error helper
+# ---------------------------------------------------------------------------
+
+def _friendly_error(exc: Exception) -> str:
+    """Convert a requests exception into a user-friendly Turkish message."""
+    msg = str(exc)
+    if "500" in msg:
+        return "AVESİS sunucusu geçici olarak hata veriyor (500). Sonraki kontrolde tekrar denenecek."
+    if "502" in msg or "503" in msg or "504" in msg:
+        return "AVESİS sunucusu şu an erişilemez durumda. Sonraki kontrolde tekrar denenecek."
+    if "ConnectionError" in msg or "Connection" in msg:
+        return "AVESİS sunucusuna bağlanılamıyor. İnternet bağlantısı veya sunucu kaynaklı olabilir."
+    if "Timeout" in msg or "timed out" in msg:
+        return "AVESİS sunucusu yanıt vermedi (zaman aşımı). Sonraki kontrolde tekrar denenecek."
+    return f"AVESİS'e erişimde hata oluştu: {msg[:200]}"
+
+
+# ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
 
@@ -287,7 +305,7 @@ def scrape_professor(profile_url: str) -> dict:
 
     # Fetch professor name from the base profile page
     try:
-        name_resp = _session.get(name_url, headers=HEADERS, timeout=REQUEST_TIMEOUT)
+        name_resp = _session.get(name_url, timeout=REQUEST_TIMEOUT)
         name_resp.raise_for_status()
         name_soup = BeautifulSoup(name_resp.text, "html.parser")
         result["professor_name"] = _extract_professor_name(name_soup)
@@ -298,11 +316,11 @@ def scrape_professor(profile_url: str) -> dict:
     # Fetch and parse announcements
     for url in urls_to_try:
         try:
-            response = _session.get(url, headers=HEADERS, timeout=REQUEST_TIMEOUT)
+            response = _session.get(url, timeout=REQUEST_TIMEOUT)
             response.raise_for_status()
         except requests.RequestException as e:
             logger.warning("Network error fetching %s: %s", url, e)
-            result["error"] = str(e)
+            result["error"] = _friendly_error(e)
             continue
 
         soup = BeautifulSoup(response.text, "html.parser")
